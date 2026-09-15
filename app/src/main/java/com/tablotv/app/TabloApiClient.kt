@@ -66,8 +66,10 @@ class TabloApiClient(
         val account = account(login.authHeader)
         val primaryProfile = account.profiles.firstOrNull() ?: throw IllegalStateException("No profiles found")
         val clientId = "00000000-0000-0000-0000-000000000000"
-        return account.devices.map { device ->
-            val token = selectAccount(login.authHeader, primaryProfile.identifier, device.serverId)
+        val device = account.devices.firstOrNull()
+            ?: throw IllegalStateException("No Tablo devices found")
+        val token = selectAccount(login.authHeader, primaryProfile.identifier, device.serverId)
+        return listOf(
             TabloDevice(
                 sid = device.serverId,
                 name = device.name,
@@ -76,12 +78,12 @@ class TabloApiClient(
                 accountToken = login.access_token,
                 clientId = clientId
             )
-        }
+        )
     }
 
     fun loadChannels(device: TabloDevice): List<TabloChannel> {
         val request = Request.Builder()
-            .url("${device.localUrl.trimEnd('/')}/api/v2/account/${device.lighthouseToken}/guide/channels/")
+            .url("$CLOUD_HOST/api/v2/account/${device.lighthouseToken}/guide/channels/")
             .header("Authorization", "Bearer ${device.accountToken}")
             .header("Lighthouse", device.lighthouseToken)
             .header("User-Agent", CLOUD_USER_AGENT)
