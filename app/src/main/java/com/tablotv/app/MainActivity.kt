@@ -1,12 +1,15 @@
 package com.tablotv.app
 
 import android.os.Bundle
+import android.view.ViewGroup
+import androidx.activity.compose.BackHandler
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.focusable
+import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -35,6 +38,7 @@ import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -54,6 +58,10 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.viewinterop.AndroidView
+import androidx.media3.common.MediaItem
+import androidx.media3.exoplayer.ExoPlayer
+import androidx.media3.ui.PlayerView
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -72,6 +80,7 @@ class MainActivity : ComponentActivity() {
             MaterialTheme(colorScheme = MaterialTheme.colorScheme.copy(background = TabloBackground)) {
                 TabloTvApp(preferences)
             }
+
         }
     }
 }
@@ -170,6 +179,14 @@ fun TabloTvApp(preferences: TabloPreferenceStore) {
                 error = null
                 status = "Ready"
             }
+        )
+    }
+
+    stream?.let { liveStream ->
+        LivePlayer(
+            stream = liveStream,
+            channel = channels.firstOrNull { it.identifier == liveStream.channelIdentifier },
+            onClose = { stream = null }
         )
     }
 }
@@ -324,6 +341,7 @@ private fun ChannelScreen(
     onForgetAccount: () -> Unit
 ) {
     var profileOpen by remember { mutableStateOf(false) }
+    var activeTab by remember { mutableStateOf("Live TV") }
 
     Surface(color = TabloBackground, modifier = Modifier.fillMaxSize()) {
         Column(Modifier.fillMaxSize().padding(horizontal = 32.dp, vertical = 24.dp)) {
@@ -332,8 +350,33 @@ private fun ChannelScreen(
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                Column {
-                    Text("LIVE TV", color = White, fontSize = 30.sp, fontWeight = FontWeight.Black)
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Box(
+                        Modifier.size(42.dp).clip(RoundedCornerShape(10.dp))
+                            .background(Brush.linearGradient(listOf(TabloBlue, TabloPurple))),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Icon(Icons.Default.Tv, contentDescription = "Tablo", tint = White)
+                    }
+                    Spacer(Modifier.width(12.dp))
+                    Text("TABLO", color = White, fontSize = 22.sp, fontWeight = FontWeight.Black)
+                    Spacer(Modifier.width(20.dp))
+                    listOf("Live TV", "Guide", "Library").forEach { tab ->
+                        Button(
+                            onClick = { activeTab = tab },
+                            colors = ButtonDefaults.buttonColors(
+                                containerColor = if (activeTab == tab) TabloBlue.copy(alpha = 0.2f) else Color.Transparent,
+                                contentColor = White
+                            ),
+                            modifier = Modifier.focusable()
+                        ) {
+                            Text(tab, color = White, fontWeight = if (activeTab == tab) FontWeight.Bold else FontWeight.Normal)
+                        }
+                    }
+                }
+                /* Keep the connected device visible in the header. */
+                Column(horizontalAlignment = Alignment.End) {
+                    Text(activeTab.uppercase(), color = White, fontSize = 30.sp, fontWeight = FontWeight.Black)
                     Text(
                         device?.name ?: "Connected Tablo",
                         color = White,
@@ -391,13 +434,30 @@ private fun ChannelScreen(
                 }
             }
             Spacer(Modifier.height(12.dp))
+            Text(
+                if (activeTab == "Live TV") "ON AIR NOW" else activeTab.uppercase(),
+                color = White,
+                fontSize = 24.sp,
+                fontWeight = FontWeight.Black
+            )
+            Text(
+                if (activeTab == "Live TV") "Browse your local guide and start watching instantly"
+                else "This section is coming soon",
+                color = White,
+                fontSize = 14.sp
+            )
+            Spacer(Modifier.height(8.dp))
             Text(status, color = White, fontSize = 16.sp)
             if (error != null) {
                 Spacer(Modifier.height(6.dp))
                 Text(error, color = White, fontSize = 14.sp)
             }
             Spacer(Modifier.height(18.dp))
-            if (channels.isEmpty()) {
+            if (activeTab != "Live TV") {
+                Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                    Text("$activeTab is not available yet.", color = White, fontSize = 18.sp)
+                }
+            } else if (channels.isEmpty()) {
                 Text("No channels are available on this Tablo.", color = White, fontSize = 18.sp)
             } else {
                 LazyColumn(
@@ -419,6 +479,8 @@ private fun ChannelScreen(
 
 @Composable
 private fun ChannelRow(channel: TabloChannel, onPlay: () -> Unit) {
+    var focused by remember { mutableStateOf(false) }
+
     Button(
         onClick = onPlay,
         colors = ButtonDefaults.buttonColors(
@@ -429,7 +491,12 @@ private fun ChannelRow(channel: TabloChannel, onPlay: () -> Unit) {
         modifier = Modifier
             .fillMaxWidth()
             .height(86.dp)
-            .border(1.dp, Color.White.copy(alpha = 0.1f), RoundedCornerShape(10.dp))
+            .border(
+                2.dp,
+                if (focused) TabloBlue else Color.White.copy(alpha = 0.1f),
+                RoundedCornerShape(10.dp)
+            )
+            .onFocusChanged { focused = it.isFocused }
             .focusable()
     ) {
         Row(
@@ -455,7 +522,70 @@ private fun ChannelRow(channel: TabloChannel, onPlay: () -> Unit) {
                     Text("Watching ${channel.network}", color = White, fontSize = 14.sp)
                 }
             }
+
             Text("WATCH", color = White, fontWeight = FontWeight.Bold, fontSize = 13.sp)
+        }
+    }
+}
+
+@Composable
+private fun LivePlayer(
+    stream: TabloStream,
+    channel: TabloChannel?,
+    onClose: () -> Unit
+) {
+    BackHandler(onBack = onClose)
+    val context = androidx.compose.ui.platform.LocalContext.current
+    val player = remember(stream.playlistUrl) {
+        ExoPlayer.Builder(context).build().apply {
+            setMediaItem(MediaItem.fromUri(stream.playlistUrl))
+            prepare()
+            playWhenReady = true
+        }
+    }
+
+    DisposableEffect(player) {
+        onDispose { player.release() }
+    }
+
+    Surface(color = Color.Black, modifier = Modifier.fillMaxSize()) {
+        Box(Modifier.fillMaxSize()) {
+            AndroidView(
+                factory = {
+                    PlayerView(it).apply {
+                        this.player = player
+                        useController = true
+                        layoutParams = ViewGroup.LayoutParams(
+                            ViewGroup.LayoutParams.MATCH_PARENT,
+                            ViewGroup.LayoutParams.MATCH_PARENT
+                        )
+                    }
+                },
+                update = { it.player = player },
+                modifier = Modifier.fillMaxSize()
+            )
+            Row(
+                modifier = Modifier.fillMaxWidth().padding(24.dp),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    channel?.displayName ?: "Live TV",
+                    color = White,
+                    fontSize = 22.sp,
+                    fontWeight = FontWeight.Bold
+                )
+                Button(
+                    onClick = onClose,
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = Color.Black.copy(alpha = 0.7f),
+                        contentColor = White
+                    ),
+                    modifier = Modifier.focusable()
+                ) {
+                    Text("Close", color = White)
+                }
+            }
         }
     }
 }
