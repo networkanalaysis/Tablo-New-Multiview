@@ -22,6 +22,8 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.grid.GridCells
+import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardActions
@@ -61,6 +63,10 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.media3.common.MediaItem
+import androidx.media3.common.MediaMetadata
+import androidx.media3.common.MimeTypes
+import androidx.media3.common.PlaybackException
+import androidx.media3.common.Player
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.ui.PlayerView
 import kotlinx.coroutines.Dispatchers
@@ -158,7 +164,9 @@ fun TabloTvApp(preferences: TabloPreferenceStore) {
             },
             onPlay = { channel ->
                 device?.let { connected ->
+                    if (loading) return@let
                     scope.launch {
+                        stream = null
                         loading = true
                         error = null
                         status = "Starting ${channel.displayName}..."
@@ -475,13 +483,15 @@ private fun ChannelScreen(
             } else if (channels.isEmpty()) {
                 Text("No channels are available on this Tablo.", color = White, fontSize = 18.sp)
             } else {
-                LazyColumn(
-                    verticalArrangement = Arrangement.spacedBy(10.dp),
-                    modifier = Modifier.fillMaxSize()
+                LazyVerticalGrid(
+                columns = GridCells.Fixed(2),
+                horizontalArrangement = Arrangement.spacedBy(16.dp),
+                verticalArrangement = Arrangement.spacedBy(16.dp),
+                modifier = Modifier.fillMaxSize()
                 ) {
-                    items(channels, key = { it.identifier }) { channel ->
-                        ChannelRow(channel = channel, onPlay = { onPlay(channel) })
-                    }
+                items(channels.size, key = { channels[it].identifier }) { index ->
+                    ChannelCard(channel = channels[index], onPlay = { onPlay(channels[index]) })
+                }
                 }
             }
             if (stream != null) {
@@ -493,7 +503,7 @@ private fun ChannelScreen(
 }
 
 @Composable
-private fun ChannelRow(channel: TabloChannel, onPlay: () -> Unit) {
+private fun ChannelCard(channel: TabloChannel, onPlay: () -> Unit) {
     var focused by remember { mutableStateOf(false) }
 
     Button(
@@ -505,7 +515,7 @@ private fun ChannelRow(channel: TabloChannel, onPlay: () -> Unit) {
         shape = RoundedCornerShape(10.dp),
         modifier = Modifier
             .fillMaxWidth()
-            .height(86.dp)
+            .height(170.dp)
             .border(
                 2.dp,
                 if (focused) TabloPurple else Color.White.copy(alpha = 0.1f),
@@ -515,31 +525,48 @@ private fun ChannelRow(channel: TabloChannel, onPlay: () -> Unit) {
             .focusable()
             .focusRing()
     ) {
-        Row(
-            Modifier.fillMaxWidth(),
-            verticalAlignment = Alignment.CenterVertically
+        Column(
+            Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 12.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp),
+            horizontalAlignment = Alignment.Start
         ) {
-            Box(
-                Modifier.width(78.dp).height(50.dp)
-                    .background(Color(0xFF2E313A), RoundedCornerShape(8.dp)),
-                contentAlignment = Alignment.Center
+            Row(
+                Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.Top
             ) {
-                Text(
-                    if (channel.major > 0) "${channel.major}.${channel.minor}" else "-",
-                    color = White,
-                    fontWeight = FontWeight.Black,
-                    fontSize = 17.sp
+                Box(
+                    Modifier.width(76.dp).height(52.dp)
+                        .background(Color.Black.copy(alpha = 0.25f), RoundedCornerShape(8.dp))
+                        .border(1.dp, Color.White.copy(alpha = 0.08f), RoundedCornerShape(8.dp)),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Text(
+                        if (channel.major > 0) "${channel.major}.${channel.minor}" else "OTT",
+                        color = White.copy(alpha = 0.65f),
+                        fontWeight = FontWeight.Black,
+                        fontSize = 16.sp
+                    )
+                }
+                Text("LIVE", color = Color(0xFFFF5B67), fontSize = 11.sp, fontWeight = FontWeight.Black)
+            }
+            Text(channel.callSign, color = White, fontSize = 18.sp, fontWeight = FontWeight.Bold)
+            Text(
+                if (channel.network.isNotBlank()) "Watching ${channel.network}" else "No program information",
+                color = White.copy(alpha = 0.45f),
+                fontSize = 13.sp,
+                maxLines = 1
+            )
+            Box(
+                Modifier.fillMaxWidth().height(4.dp)
+                    .background(Color.White.copy(alpha = 0.08f), RoundedCornerShape(4.dp))
+            ) {
+                Box(
+                    Modifier.fillMaxWidth(0.35f).height(4.dp)
+                        .background(TabloBlue, RoundedCornerShape(4.dp))
                 )
             }
-            Spacer(Modifier.width(16.dp))
-            Column(Modifier.weight(1f), horizontalAlignment = Alignment.Start) {
-                Text(channel.callSign, color = White, fontSize = 19.sp, fontWeight = FontWeight.Bold)
-                if (channel.network.isNotBlank()) {
-                    Text("Watching ${channel.network}", color = White, fontSize = 14.sp)
-                }
-            }
-
-            Text("WATCH", color = White, fontWeight = FontWeight.Bold, fontSize = 13.sp)
+            Text("WATCH NOW", color = TabloBlue, fontWeight = FontWeight.Bold, fontSize = 11.sp)
         }
     }
 }
@@ -552,16 +579,42 @@ private fun LivePlayer(
 ) {
     BackHandler(onBack = onClose)
     val context = androidx.compose.ui.platform.LocalContext.current
-    val player = remember(stream.playlistUrl) {
+    var playbackError by remember(stream.playlistUrl) { mutableStateOf<String?>(null) }
+    var buffering by remember(stream.playlistUrl) { mutableStateOf(true) }
+    val player = remember(context, stream.playlistUrl) {
         ExoPlayer.Builder(context).build().apply {
-            setMediaItem(MediaItem.fromUri(stream.playlistUrl))
+            setMediaItem(
+                MediaItem.Builder()
+                    .setUri(stream.playlistUrl)
+                    .setMimeType(MimeTypes.APPLICATION_M3U8)
+                    .setMediaMetadata(
+                        MediaMetadata.Builder().setTitle(channel?.displayName ?: "Live TV").build()
+                    )
+                    .build()
+            )
             prepare()
             playWhenReady = true
         }
     }
 
     DisposableEffect(player) {
-        onDispose { player.release() }
+        val listener = object : Player.Listener {
+            override fun onPlaybackStateChanged(playbackState: Int) {
+                buffering = playbackState == Player.STATE_BUFFERING || playbackState == Player.STATE_IDLE
+            }
+
+            override fun onPlayerError(error: PlaybackException) {
+                buffering = false
+                playbackError = "Unable to play this live stream: ${error.errorCodeName}"
+            }
+        }
+        player.addListener(listener)
+        onDispose {
+            player.removeListener(listener)
+            player.stop()
+            player.clearMediaItems()
+            player.release()
+        }
     }
 
     Surface(color = Color.Black, modifier = Modifier.fillMaxSize()) {
@@ -580,6 +633,38 @@ private fun LivePlayer(
                 update = { it.player = player },
                 modifier = Modifier.fillMaxSize()
             )
+            if (buffering && playbackError == null) {
+                Surface(
+                    color = Color.Black.copy(alpha = 0.72f),
+                    modifier = Modifier.align(Alignment.Center),
+                    shape = RoundedCornerShape(16.dp)
+                ) {
+                    Text("Opening ${channel?.displayName ?: "live TV"}...", color = White, modifier = Modifier.padding(24.dp))
+                }
+            }
+            if (playbackError != null) {
+                Surface(
+                    color = Color.Black.copy(alpha = 0.86f),
+                    modifier = Modifier.align(Alignment.Center).padding(32.dp),
+                    shape = RoundedCornerShape(16.dp)
+                ) {
+                    Column(
+                        Modifier.padding(24.dp),
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        verticalArrangement = Arrangement.spacedBy(14.dp)
+                    ) {
+                        Text(playbackError ?: "", color = White, fontSize = 16.sp)
+                        Text("The Tablo returned a stream the TV could not decode.", color = White.copy(alpha = 0.65f))
+                        Button(
+                            onClick = onClose,
+                            colors = ButtonDefaults.buttonColors(containerColor = TabloPurple),
+                            modifier = Modifier.focusable().focusRing()
+                        ) {
+                            Text("Back to Live TV", color = White)
+                        }
+                    }
+                }
+            }
             Row(
                 modifier = Modifier.fillMaxWidth().padding(24.dp),
                 horizontalArrangement = Arrangement.SpaceBetween,
