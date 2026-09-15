@@ -11,7 +11,9 @@ import java.util.concurrent.TimeUnit
 class TabloApiClient(
     private val okHttpClient: OkHttpClient = OkHttpClient.Builder()
         .connectTimeout(15, TimeUnit.SECONDS)
+        .writeTimeout(15, TimeUnit.SECONDS)
         .readTimeout(20, TimeUnit.SECONDS)
+        .callTimeout(45, TimeUnit.SECONDS)
         .build(),
     private val json: Json = Json { ignoreUnknownKeys = true }
 ) {
@@ -29,9 +31,10 @@ class TabloApiClient(
             .post(body.toRequestBody("application/json; charset=utf-8".toMediaType()))
             .build()
 
-        val response = okHttpClient.newCall(request).execute()
-        if (!response.isSuccessful) throw IllegalStateException("Login failed: ${response.code}")
-        return json.decodeFromString(CloudLoginResponse.serializer(), response.body?.string() ?: "")
+        okHttpClient.newCall(request).execute().use { response ->
+            if (!response.isSuccessful) throw IllegalStateException("Login failed: ${response.code}")
+            return json.decodeFromString(CloudLoginResponse.serializer(), response.body?.string() ?: "")
+        }
     }
 
     fun account(authHeader: String): CloudAccountResponse {
@@ -42,9 +45,10 @@ class TabloApiClient(
             .get()
             .build()
 
-        val response = okHttpClient.newCall(request).execute()
-        if (!response.isSuccessful) throw IllegalStateException("Account lookup failed: ${response.code}")
-        return json.decodeFromString(CloudAccountResponse.serializer(), response.body?.string() ?: "")
+        okHttpClient.newCall(request).execute().use { response ->
+            if (!response.isSuccessful) throw IllegalStateException("Account lookup failed: ${response.code}")
+            return json.decodeFromString(CloudAccountResponse.serializer(), response.body?.string() ?: "")
+        }
     }
 
     fun selectAccount(authHeader: String, pid: String, sid: String): String {
@@ -56,9 +60,10 @@ class TabloApiClient(
             .post(body.toRequestBody("application/json; charset=utf-8".toMediaType()))
             .build()
 
-        val response = okHttpClient.newCall(request).execute()
-        if (!response.isSuccessful) throw IllegalStateException("Device select failed: ${response.code}")
-        return json.decodeFromString(CloudSelectResponse.serializer(), response.body?.string() ?: "").token
+        okHttpClient.newCall(request).execute().use { response ->
+            if (!response.isSuccessful) throw IllegalStateException("Device select failed: ${response.code}")
+            return json.decodeFromString(CloudSelectResponse.serializer(), response.body?.string() ?: "").token
+        }
     }
 
     fun discoverDevices(email: String, password: String): List<TabloDevice> {
@@ -84,15 +89,19 @@ class TabloApiClient(
     fun loadChannels(device: TabloDevice): List<TabloChannel> {
         val request = Request.Builder()
             .url("$CLOUD_HOST/api/v2/account/${device.lighthouseToken}/guide/channels/")
-            .header("Authorization", "Bearer ${device.accountToken}")
+            .header("Authorization", "Bearer " + device.accountToken)
             .header("Lighthouse", device.lighthouseToken)
             .header("User-Agent", CLOUD_USER_AGENT)
             .get()
             .build()
 
-        val response = okHttpClient.newCall(request).execute()
-        if (!response.isSuccessful) throw IllegalStateException("Channel lookup failed: ${response.code}")
-        val channels = json.decodeFromString(ListSerializer(CloudChannel.serializer()), response.body?.string() ?: "[]")
+        val channels = okHttpClient.newCall(request).execute().use { response ->
+            if (!response.isSuccessful) throw IllegalStateException("Channel lookup failed: ${response.code}")
+            json.decodeFromString(
+                ListSerializer(CloudChannel.serializer()),
+                response.body?.string() ?: "[]"
+            )
+        }
         return channels.mapNotNull { cloud ->
             val info = cloud.ota ?: cloud.ott
             val callSign = info?.callSign ?: cloud.name ?: cloud.identifier
@@ -141,17 +150,18 @@ class TabloApiClient(
             .post(body.toRequestBody("application/x-www-form-urlencoded".toMediaType()))
             .build()
 
-        val response = okHttpClient.newCall(request).execute()
-        if (!response.isSuccessful) throw IllegalStateException("Watch request failed: ${response.code}")
-        val raw = response.body?.string() ?: "{}"
-        val result = json.decodeFromString(WatchResponse.serializer(), raw)
-        val playlist = result.playlistUrl ?: throw IllegalStateException("No playlist returned: $raw")
-        return TabloStream(
-            channelIdentifier = channel.identifier,
-            playlistUrl = playlist,
-            token = result.token,
-            expires = result.expires,
-            keepalive = result.keepalive
-        )
+        okHttpClient.newCall(request).execute().use { response ->
+            if (!response.isSuccessful) throw IllegalStateException("Watch request failed: ${response.code}")
+            val raw = response.body?.string() ?: "{}"
+            val result = json.decodeFromString(WatchResponse.serializer(), raw)
+            val playlist = result.playlistUrl ?: throw IllegalStateException("No playlist returned: $raw")
+            return TabloStream(
+                channelIdentifier = channel.identifier,
+                playlistUrl = playlist,
+                token = result.token,
+                expires = result.expires,
+                keepalive = result.keepalive
+            )
+        }
     }
 }

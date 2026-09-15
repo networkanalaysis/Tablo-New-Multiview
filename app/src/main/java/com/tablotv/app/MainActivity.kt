@@ -49,6 +49,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.composed
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalFocusManager
@@ -65,6 +66,7 @@ import androidx.media3.ui.PlayerView
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import java.io.IOException
 
 private val TabloBlue = Color(0xFF5B8AF5)
 private val TabloPurple = Color(0xFF7C5BF5)
@@ -118,7 +120,11 @@ fun TabloTvApp(preferences: TabloPreferenceStore) {
                 status = "${loadedChannels.size} channels available on ${connected.name}"
             } catch (t: Throwable) {
                 status = "Ready"
-                error = t.message ?: "Unable to connect to Tablo"
+                error = if (t is IOException && t.message?.contains("timeout", ignoreCase = true) == true) {
+                    "Tablo took too long to respond. Check the TV's internet connection and try again."
+                } else {
+                    t.message ?: "Unable to connect to Tablo"
+                }
             } finally {
                 loading = false
             }
@@ -264,7 +270,7 @@ private fun SignInScreen(
                 ),
                 colors = signInFieldColors(),
                 shape = RoundedCornerShape(10.dp),
-                modifier = Modifier.fillMaxWidth().focusable()
+                modifier = Modifier.fillMaxWidth().focusable().focusRing()
             )
             Spacer(Modifier.height(14.dp))
             OutlinedTextField(
@@ -282,7 +288,7 @@ private fun SignInScreen(
                 keyboardActions = KeyboardActions(onDone = { submit() }),
                 colors = signInFieldColors(),
                 shape = RoundedCornerShape(10.dp),
-                modifier = Modifier.fillMaxWidth().focusable()
+                modifier = Modifier.fillMaxWidth().focusable().focusRing()
             )
             Spacer(Modifier.height(22.dp))
             Button(
@@ -294,7 +300,7 @@ private fun SignInScreen(
                     disabledContainerColor = TabloPurple.copy(alpha = 0.45f),
                     disabledContentColor = White
                 ),
-                modifier = Modifier.fillMaxWidth().height(56.dp).focusable()
+                modifier = Modifier.fillMaxWidth().height(56.dp).focusable().focusRing()
             ) {
                 Text(if (loading) "Connecting..." else "Sign In", color = White, fontSize = 18.sp)
             }
@@ -314,7 +320,7 @@ private fun signInFieldColors() = OutlinedTextFieldDefaults.colors(
     unfocusedTextColor = White,
     disabledTextColor = White,
     cursorColor = White,
-    focusedBorderColor = TabloBlue,
+    focusedBorderColor = TabloPurple,
     unfocusedBorderColor = White,
     disabledBorderColor = White.copy(alpha = 0.5f),
     focusedLabelColor = White,
@@ -327,6 +333,15 @@ private fun signInFieldColors() = OutlinedTextFieldDefaults.colors(
     unfocusedContainerColor = TabloCard,
     disabledContainerColor = TabloCard
 )
+
+private fun Modifier.focusRing(): Modifier = composed {
+    var focused by remember { mutableStateOf(false) }
+    border(
+        width = 2.dp,
+        color = if (focused) TabloPurple else Color.Transparent,
+        shape = RoundedCornerShape(10.dp)
+    ).onFocusChanged { focused = it.isFocused }
+}
 
 @Composable
 private fun ChannelScreen(
@@ -368,7 +383,7 @@ private fun ChannelScreen(
                                 containerColor = if (activeTab == tab) TabloBlue.copy(alpha = 0.2f) else Color.Transparent,
                                 contentColor = White
                             ),
-                            modifier = Modifier.focusable()
+                            modifier = Modifier.focusable().focusRing()
                         ) {
                             Text(tab, color = White, fontWeight = if (activeTab == tab) FontWeight.Bold else FontWeight.Normal)
                         }
@@ -390,7 +405,7 @@ private fun ChannelScreen(
                             containerColor = TabloCard,
                             contentColor = White
                         ),
-                        modifier = Modifier.focusable()
+                        modifier = Modifier.focusable().focusRing()
                     ) { Text("Refresh Channels", color = White) }
                     Box {
                         Button(
@@ -399,7 +414,7 @@ private fun ChannelScreen(
                                 containerColor = TabloCard,
                                 contentColor = White
                             ),
-                            modifier = Modifier.focusable()
+                            modifier = Modifier.focusable().focusRing()
                         ) {
                             Icon(Icons.Default.AccountCircle, contentDescription = "Account", tint = White)
                             Spacer(Modifier.width(8.dp))
@@ -423,7 +438,7 @@ private fun ChannelScreen(
                                             profileOpen = false
                                             onForgetAccount()
                                         },
-                                        modifier = Modifier.fillMaxWidth().focusable()
+                                        modifier = Modifier.fillMaxWidth().focusable().focusRing()
                                     ) {
                                         Text("Sign Out", color = White, fontWeight = FontWeight.Bold)
                                     }
@@ -493,11 +508,12 @@ private fun ChannelRow(channel: TabloChannel, onPlay: () -> Unit) {
             .height(86.dp)
             .border(
                 2.dp,
-                if (focused) TabloBlue else Color.White.copy(alpha = 0.1f),
+                if (focused) TabloPurple else Color.White.copy(alpha = 0.1f),
                 RoundedCornerShape(10.dp)
             )
             .onFocusChanged { focused = it.isFocused }
             .focusable()
+            .focusRing()
     ) {
         Row(
             Modifier.fillMaxWidth(),
@@ -581,7 +597,7 @@ private fun LivePlayer(
                         containerColor = Color.Black.copy(alpha = 0.7f),
                         contentColor = White
                     ),
-                    modifier = Modifier.focusable()
+                    modifier = Modifier.focusable().focusRing()
                 ) {
                     Text("Close", color = White)
                 }
