@@ -132,7 +132,7 @@ class TabloApiClient(
         val (authHeader, date) = TabloSigner.makeDeviceAuth("POST", path, body)
 
         val request = Request.Builder()
-            .url((device.localUrl.trimEnd('/') + path))
+            .url(device.localUrl.trimEnd('/') + path + "?lh")
             .header("Authorization", authHeader)
             .header("Date", date)
             .header("Content-Type", "application/x-www-form-urlencoded")
