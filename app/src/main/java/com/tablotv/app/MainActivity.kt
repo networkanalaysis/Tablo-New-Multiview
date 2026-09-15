@@ -24,6 +24,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.AccountCircle
 import androidx.compose.material.icons.filled.Tv
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
@@ -129,6 +130,7 @@ fun TabloTvApp(preferences: TabloPreferenceStore) {
         )
     } else {
         ChannelScreen(
+            email = preferences.savedEmail(),
             device = device,
             channels = channels,
             stream = stream,
@@ -311,6 +313,7 @@ private fun signInFieldColors() = OutlinedTextFieldDefaults.colors(
 
 @Composable
 private fun ChannelScreen(
+    email: String,
     device: TabloDevice?,
     channels: List<TabloChannel>,
     stream: TabloStream?,
@@ -320,6 +323,8 @@ private fun ChannelScreen(
     onPlay: (TabloChannel) -> Unit,
     onForgetAccount: () -> Unit
 ) {
+    var profileOpen by remember { mutableStateOf(false) }
+
     Surface(color = TabloBackground, modifier = Modifier.fillMaxSize()) {
         Column(Modifier.fillMaxSize().padding(horizontal = 32.dp, vertical = 24.dp)) {
             Row(
@@ -335,7 +340,7 @@ private fun ChannelScreen(
                         fontSize = 16.sp
                     )
                 }
-                Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                Row(horizontalArrangement = Arrangement.spacedBy(10.dp), verticalAlignment = Alignment.CenterVertically) {
                     Button(
                         onClick = onRefresh,
                         colors = ButtonDefaults.buttonColors(
@@ -344,8 +349,44 @@ private fun ChannelScreen(
                         ),
                         modifier = Modifier.focusable()
                     ) { Text("Refresh Channels", color = White) }
-                    TextButton(onClick = onForgetAccount, modifier = Modifier.focusable()) {
-                        Text("Forget Account", color = White)
+                    Box {
+                        Button(
+                            onClick = { profileOpen = !profileOpen },
+                            colors = ButtonDefaults.buttonColors(
+                                containerColor = TabloCard,
+                                contentColor = White
+                            ),
+                            modifier = Modifier.focusable()
+                        ) {
+                            Icon(Icons.Default.AccountCircle, contentDescription = "Account", tint = White)
+                            Spacer(Modifier.width(8.dp))
+                            Text(email.take(2).uppercase().ifBlank { "TV" }, color = White)
+                        }
+                        if (profileOpen) {
+                            Surface(
+                                color = Color(0xFF252832),
+                                shape = RoundedCornerShape(12.dp),
+                                border = BorderStroke(1.dp, Color.White.copy(alpha = 0.15f)),
+                                modifier = Modifier
+                                    .width(260.dp)
+                                    .padding(top = 58.dp)
+                            ) {
+                                Column(Modifier.padding(14.dp)) {
+                                    Text("SIGNED IN AS", color = White, fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                                    Text(email, color = White, fontSize = 14.sp)
+                                    Spacer(Modifier.height(12.dp))
+                                    TextButton(
+                                        onClick = {
+                                            profileOpen = false
+                                            onForgetAccount()
+                                        },
+                                        modifier = Modifier.fillMaxWidth().focusable()
+                                    ) {
+                                        Text("Sign Out", color = White, fontWeight = FontWeight.Bold)
+                                    }
+                                }
+                            }
+                        }
                     }
                 }
             }
@@ -385,14 +426,18 @@ private fun ChannelRow(channel: TabloChannel, onPlay: () -> Unit) {
             contentColor = White
         ),
         shape = RoundedCornerShape(10.dp),
-        modifier = Modifier.fillMaxWidth().height(72.dp).focusable()
+        modifier = Modifier
+            .fillMaxWidth()
+            .height(86.dp)
+            .border(1.dp, Color.White.copy(alpha = 0.1f), RoundedCornerShape(10.dp))
+            .focusable()
     ) {
         Row(
             Modifier.fillMaxWidth(),
             verticalAlignment = Alignment.CenterVertically
         ) {
             Box(
-                Modifier.width(72.dp).height(42.dp)
+                Modifier.width(78.dp).height(50.dp)
                     .background(Color(0xFF2E313A), RoundedCornerShape(8.dp)),
                 contentAlignment = Alignment.Center
             ) {
@@ -400,14 +445,14 @@ private fun ChannelRow(channel: TabloChannel, onPlay: () -> Unit) {
                     if (channel.major > 0) "${channel.major}.${channel.minor}" else "-",
                     color = White,
                     fontWeight = FontWeight.Black,
-                    fontSize = 16.sp
+                    fontSize = 17.sp
                 )
             }
             Spacer(Modifier.width(16.dp))
             Column(Modifier.weight(1f), horizontalAlignment = Alignment.Start) {
-                Text(channel.callSign, color = White, fontSize = 18.sp, fontWeight = FontWeight.Bold)
+                Text(channel.callSign, color = White, fontSize = 19.sp, fontWeight = FontWeight.Bold)
                 if (channel.network.isNotBlank()) {
-                    Text(channel.network, color = White, fontSize = 14.sp)
+                    Text("Watching ${channel.network}", color = White, fontSize = 14.sp)
                 }
             }
             Text("WATCH", color = White, fontWeight = FontWeight.Bold, fontSize = 13.sp)
